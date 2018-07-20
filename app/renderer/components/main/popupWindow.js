@@ -19,6 +19,16 @@ const windowActions = require('../../../../js/actions/windowActions')
 // Styles
 const globalStyles = require('../styles/global')
 
+const waitForFrame = () => new Promise(resolve => window.requestAnimationFrame(resolve))
+
+async function forceDrawWebview (webview) {
+  await waitForFrame()
+  webview.style.visibility = 'hidden'
+  await waitForFrame()
+  webview.style.visibility = ''
+  await waitForFrame()
+}
+
 class PopupWindow extends React.Component {
   constructor (props) {
     super(props)
@@ -47,8 +57,30 @@ class PopupWindow extends React.Component {
       })
       webview.addEventListener('did-attach', () => {
         webview.enablePreferredSizeMode(true)
+        // Workaround first-draw blankness by forcing hide and show.
+        if (!this.hasDrawn) {
+          forceDrawWebview(webview)
+          this.hasDrawn = true
+        }
+      })
+      webview.addEventListener('load-start', () => {
+        this.isLoading = true
+      })
+      webview.addEventListener('did-finish-load', () => {
+        this.isLoading = false
+      })
+      webview.addEventListener('did-fail-load', () => {
+        this.isLoading = false
+      })
+      webview.addEventListener('did-fail-provisional-load', () => {
+        this.isLoading = false
       })
       webview.addEventListener('preferred-size-changed', () => {
+        // Don't set size during load as this can flash between different sizes.
+        // This seems stable, i.e. preferred-size-changed is also firing after load is complete.
+        if (this.isLoading) {
+          return
+        }
         webview.getPreferredSize((preferredSize) => {
           const width = preferredSize.width
           const height = preferredSize.height
@@ -94,14 +126,6 @@ class PopupWindow extends React.Component {
   render () {
     let style = {}
 
-    if (this.props.width) {
-      style.width = this.props.width + 2
-    }
-
-    if (this.props.height) {
-      style.height = this.props.height + 2
-    }
-
     if (this.props.top) {
       if (this.props.top + this.props.height < window.innerHeight) {
         style.top = this.props.top
@@ -122,6 +146,7 @@ class PopupWindow extends React.Component {
       data-popup-window
       className={css(
         styles.popupWindow,
+        !this.props.width && styles.popupWindow_noSize,
         style.right !== undefined && styles.popupWindow_reverseExpand
       )}
       style={style} />
@@ -143,6 +168,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     userSelect: 'none',
     zIndex: globalStyles.zindex.zindexPopupWindow
+  },
+
+  popupWindow_noSize: {
+    opacity: 0
   },
 
   popupWindow_reverseExpand: {
